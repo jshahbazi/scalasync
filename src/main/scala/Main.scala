@@ -58,10 +58,6 @@ object sync {
             var fileToUpload = new java.io.File(fileName)
             println("Uploading " + fileName + "...")
             val result = s3bucket.put(fileName, fileToUpload) 
-            // PutObjectResult(S3Bucket [name=jnstestbucket, creationDate=Fri Sep 14 05:05:23 UTC 2018, 
-            // owner=S3Owner [name=jshahbazi,id=68ba49aea2bab8789311316548a534ac6a140af153f1858f88b5ab27ec6a6cdf]],
-            // /home/ubuntu/workspace/scalasync/test.txt,null,50ac808fa464f9a51fa12c1ae201b20c,
-            // UKyAj6Rk+aUfoSwa4gGyDA==,2018-09-16T21:37:02.995Z,null,null)
             if(result.key != null){
                 result.key
             } else {
@@ -236,10 +232,4 @@ object sync {
         }
     }
     
-
-// S3ObjectSummary{bucketName='jnstestbucket', key='test.txt', 
-// eTag='50ac808fa464f9a51fa12c1ae201b20c', size=19, 
-// lastModified=Fri Sep 14 05:09:46 UTC 2018, storageClass='STANDARD', 
-// owner=S3Owner [name=jshahbazi,id=68ba49aea2bab8789311316548a534ac6a140af153f1858f88b5ab27ec6a6cdf]}            
-
 }
