@@ -1,0 +1,60 @@
+quit
+compile
+exit
+~run
+set ThisBuild /scalaVersion := "2.12.6"
+session save
+set scalaVersion := "2.12.6"
+session save
+set name := "scalasync"
+set version = "0.0.1"
+set version := "0.0.1"
+session save
+run
+session reload
+session
+help session
+exit
+run
+run hello
+run
+run /tmp
+run
+run /tmp
+run /blah
+run
+sbt
+run
+run /tmp
+run
+~run
+run
+~run
+run
+~run
+run
+~run
+run
+~run
+run
+compile
+compile -deprecation
+run
+q
+run
+run /home/ubuntu/workspace/scalasync/testupload
+run
+run /home/ubuntu/workspace/scalasync/testupload/
+exit
+run
+run /home/workspace/scalasync/project
+run /home/ubuntu/workspace/scalasync/testupload
+run
+run /home/ubuntu/workspace/scalasync/testupload
+compile
+run /home/ubuntu/workspace/scalasync/testupload
+compile
+run /home/ubuntu/workspace/scalasync/testupload
+compile
+run /home/ubuntu/workspace/scalasync/testupload
+exit
