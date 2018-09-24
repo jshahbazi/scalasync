@@ -58,3 +58,6 @@ run /home/ubuntu/workspace/scalasync/testupload
 compile
 run /home/ubuntu/workspace/scalasync/testupload
 exit
+run /home/ubuntu/workspace/scalasync/testupload push
+run /home/ubuntu/workspace/scalasync/testupload pull
+exit

@@ -157,16 +157,17 @@ object sync {
                     var s3filesSet = loadS3Files
                     var localfilesSet = loadLocalFiles
                     
-                    syncFilesToS3(s3filesSet,localfilesSet)
-                    removeFilesFromS3(s3filesSet,localfilesSet)
-                    // println("Current Directory: " + directoryToMonitor)
-                    // println("Local Files:")      
+                    syncMode match{
+                        case "push" => {
+                            syncFilesToS3(s3filesSet,localfilesSet)
+                            removeFilesFromS3(s3filesSet,localfilesSet)                            
+                        }
+                        case "pull" => {
+                            println("Pull mode in development...")
+                        }
+                        case _ => println("Error: Unknown syncMode")
+                    }
                     
-                                
-                    
-                    // println(s3filesSet)
-                    // println(localfilesSet)
-                
                     Thread.sleep(10000)
                 }
             } catch {
@@ -181,6 +182,7 @@ object sync {
 
         try{
             var directoryToMonitor = ""
+            var syncMode = ""
             if (args.length == 0){
                 directoryToMonitor = new java.io.File( "." ).getCanonicalPath()
             } else {
@@ -192,12 +194,13 @@ object sync {
                 else {
                     throw new IllegalArgumentException("Directory does not exist: " + args(0))
                 }
-                if(args(1).exists){
+                if(!args(1).isEmpty){
                     syncMode = args(1)
                     println("Sync Mode: " + syncMode)
                 }
                 else {
                     syncMode = "push"
+                    println("Sync Mode: " + syncMode)
                 }                
             }            
             

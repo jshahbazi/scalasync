@@ -1,13 +1,1 @@
-[0m[[0m[0minfo[0m] [0m[0mPackaging /home/ubuntu/workspace/scalasync/target/scala-2.12/scalasync_2.12-0.0.1.jar ...[0m
-[0m[[0m[0mdebug[0m] [0m[0mInput file mappings:[0m
-[0m[[0m[0mdebug[0m] [0m[0m	scalasync/sync.class[0m
-[0m[[0m[0mdebug[0m] [0m[0m	  /home/ubuntu/workspace/scalasync/target/scala-2.12/classes/scalasync/sync.class[0m
-[0m[[0m[0mdebug[0m] [0m[0m	scalasync/sync$FileChecker.class[0m
-[0m[[0m[0mdebug[0m] [0m[0m	  /home/ubuntu/workspace/scalasync/target/scala-2.12/classes/scalasync/sync$FileChecker.class[0m
-[0m[[0m[0mdebug[0m] [0m[0m	scalasync/sync$$anon$1.class[0m
-[0m[[0m[0mdebug[0m] [0m[0m	  /home/ubuntu/workspace/scalasync/target/scala-2.12/classes/scalasync/sync$$anon$1.class[0m
-[0m[[0m[0mdebug[0m] [0m[0m	scalasync/sync$.class[0m
-[0m[[0m[0mdebug[0m] [0m[0m	  /home/ubuntu/workspace/scalasync/target/scala-2.12/classes/scalasync/sync$.class[0m
-[0m[[0m[0mdebug[0m] [0m[0m	scalasync[0m
-[0m[[0m[0mdebug[0m] [0m[0m	  /home/ubuntu/workspace/scalasync/target/scala-2.12/classes/scalasync[0m
-[0m[[0m[0minfo[0m] [0m[0mDone packaging.[0m
+[0m[[0m[0mdebug[0m] [0m[0mJar uptodate: /home/ubuntu/workspace/scalasync/target/scala-2.12/scalasync_2.12-0.0.1.jar[0m
