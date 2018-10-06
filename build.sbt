@@ -7,4 +7,4 @@ version := "0.0.1"
 
 
 
-libraryDependencies += "com.github.seratch" %% "awscala" % "0.7.+"
+libraryDependencies += "com.github.seratch" %% "awscala" % "0.8.+"

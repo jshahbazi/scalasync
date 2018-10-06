@@ -69,14 +69,26 @@ object sync {
     }
     
     
-    class FileChecker(var directoryToMonitor: String, var syncMode: String, implicit val s3: S3) extends Runnable {
-        val bucket = s3.bucket("jnstestbucket")
+    class FileChecker(var directoryToMonitor: String, var syncMode: String, var bucketName: String, implicit val s3: S3) extends Runnable {
+        val bucket = getS3Bucket(bucketName)
+        
+        def getS3Bucket(bucketName: String): Bucket = {
+            val buckets: Seq[Bucket] = s3.buckets
+            var myBucket = None: Option[Bucket]
+            var bucketFound = buckets.find(_.name == bucketName)
+
+            if(bucketFound == None){
+                myBucket = Some(s3.createBucket(bucketName))
+            }
+
+            myBucket.get
+        }
         
         
         def loadS3Files: HashMap[String, String] = {
                 var s3filesSet: HashMap[String, String] = scala.collection.mutable.HashMap()
                 // println("S3 Files:")
-                s3.ls(bucket.get, directoryToMonitor + "/").foreach {
+                s3.ls(bucket, directoryToMonitor + "/").foreach {
                     case Left(directoryPrefix) => println(directoryPrefix)
                     case Right(s3ObjectSummary) => {
                         var fileName = s3ObjectSummary.getKey
@@ -109,7 +121,7 @@ object sync {
                     // println(fileName + " - Uploaded")
                 } else{
                     // println(fileName + " - Pending")
-                    uploadFile(fileName,bucket.get)
+                    uploadFile(fileName,bucket)
                     .onComplete{
                         case Success(fileThatWasUploaded) => Unit // println("Successfully uploaded " + fileThatWasUploaded)
                         case Failure(e) => {
@@ -129,11 +141,11 @@ object sync {
                 if(localfilesSet.contains(fileName)){
                     // println(fileName + " - Uploaded")
                 } else{
-                    // var objToDelete = s3.get(bucket.get,fileName)
+                    // var objToDelete = s3.get(bucket,fileName)
                     println("Deleting " + fileName + "...")
-                    bucket.get.delete(fileName)
+                    bucket.delete(fileName)
                     // println(fileName + " - Pending")
-                    // uploadFile(fileName,bucket.get)
+                    // uploadFile(fileName,bucket)
                     // .onComplete{
                     //     case Success(fileThatWasUploaded) => Unit // println("Successfully uploaded " + fileThatWasUploaded)
                     //     case Failure(e) => {
@@ -150,8 +162,6 @@ object sync {
             
             try{
             
-                     
-    
                 while(true){
     
                     var s3filesSet = loadS3Files
@@ -183,8 +193,13 @@ object sync {
         try{
             var directoryToMonitor = ""
             var syncMode = ""
+            var bucketName = ""
+            // var amznRegion = com.amazonaws.regions.Regions.US_EAST_1
             if (args.length == 0){
                 directoryToMonitor = new java.io.File( "." ).getCanonicalPath()
+                syncMode = "push"
+                bucketName = "scalasync"
+                // amznRegion = com.amazonaws.regions.Regions.US_EAST_1
             } else {
                 // val dirExists = new java.io.File(args(0)).exists
                 if(new java.io.File(args(0)).exists){
@@ -201,12 +216,32 @@ object sync {
                 else {
                     syncMode = "push"
                     println("Sync Mode: " + syncMode)
-                }                
+                }
+                if(!args(2).isEmpty){
+                    bucketName = args(2)
+                    println("S3 Bucket: " + bucketName)
+                }
+                else {
+                    bucketName = "scalasync"
+                    println("S3 Bucket: " + bucketName)
+                }
+                // if(args(3) == "US_EAST_1"){
+                //     amznRegion = com.amazonaws.regions.Regions.US_EAST_1
+                // }
+                // else{
+                //     amznRegion = com.amazonaws.regions.Regions.US_EAST_1
+                // }
+                // println("Amazon Region: " + amznRegion.toString)
             }            
             
          
             implicit val s3 = S3()
             s3.setRegion(com.amazonaws.regions.Region.getRegion(com.amazonaws.regions.Regions.US_EAST_1))
+            // s3.setRegion(Region.getRegion(Regions.US_EAST_1))
+            // S3.at(Region.NorthernVirginia)
+            
+            // implicit val s3 = S3.at(Region.NorthernVirginia)
+            // s3.createBucket("jnstestbucket")
             
             val pool = java.util.concurrent.Executors.newFixedThreadPool(1,
                 new ThreadFactory() {
@@ -217,11 +252,11 @@ object sync {
                     }
             })
             
-            pool.execute(new FileChecker(directoryToMonitor,syncMode,s3))
+            pool.execute(new FileChecker(directoryToMonitor,syncMode,bucketName,s3))
      
     
             Iterator.continually({
-                    println("Enter your choice: (Q)uit, (L)ist files:")
+                    print("Enter your choice: (Q)uit, (L)ist files: ")
                     readLine().toUpperCase
                 }).takeWhile(_.nonEmpty).foreach {
                 case "Q" => println("Quitting...");return
@@ -231,7 +266,7 @@ object sync {
             
             
         } catch {
-            case e: Exception => println("Error: " + e);
+            case e: Exception => println("Error (Main): " + e);
         }
     }
     
