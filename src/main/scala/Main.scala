@@ -4,6 +4,7 @@ import scala.io.Source
 import java.io.PrintWriter
 import java.io.File
 import java.io.FileInputStream
+import com.typesafe.config.{Config, ConfigFactory, ConfigValueFactory}
 import java.security.MessageDigest
 import java.security.DigestInputStream
 import awscala._, s3._
@@ -56,35 +57,84 @@ object sync {
     def uploadFile(fileName: String, s3bucket: Bucket)(implicit s3: S3) = Future {
         try{
             var fileToUpload = new java.io.File(fileName)
-            println("Uploading " + fileName + "...")
+            print("\nUploading " + fileName + "...")
             val result = s3bucket.put(fileName, fileToUpload) 
             if(result.key != null){
                 result.key
             } else {
-                println("Error uploading " + fileName)
+                print("\nError uploading " + fileName)
             }
         } catch {
-            case e: Exception => println("Error: " + e);
+            case e: Exception => print("\nError: " + e);
         }
     }
     
+    //Bucket already exists error message:
+    //com.amazonaws.services.s3.model.AmazonS3Exception: The authorization header is malformed; the region 'us-east-1' is wrong; expecting 'eu-west-1' (Service: Amazon S3; Status Code: 400; Error Code: AuthorizationHeaderMalformed
+    
+    def getS3Bucket(bucketName: String, s3: S3): Bucket = {
+        val buckets: Seq[Bucket] = s3.buckets
+        var myBucket = None: Option[Bucket]
+        var bucketFound = buckets.find(_.name == bucketName)
+
+        
+        if(bucketFound == None){
+            myBucket = Some(s3.createBucket(bucketName))
+        }
+        else{
+            myBucket = bucketFound
+        }
+
+        // println(s3.location(myBucket.get))
+        myBucket.get
+    }
+    
+    def checkForS3Bucket(bucketName: String, s3: S3): Boolean = {
+        val buckets: Seq[Bucket] = s3.buckets
+        var myBucket = None: Option[Bucket]
+        var bucketFound = buckets.find(_.name == bucketName)
+
+        
+        if(bucketFound == None){
+            return false
+        }
+        else{
+            return true
+        }
+    }        
+    
+    def createS3Bucket(bucketName: String, s3: S3): Boolean = {
+        val buckets: Seq[Bucket] = s3.buckets
+        var myBucket = None: Option[Bucket]
+        var bucketFound = buckets.find(_.name == bucketName)
+
+        
+        if(bucketFound == None){
+            try{
+                myBucket = Some(s3.createBucket(bucketName))
+                return true
+            }
+            catch{
+                case genericError: Exception => {
+                    println("Error creating " + bucketName + " bucket: " + genericError);
+                    return false                    
+                }
+                case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => {
+                    print("Error creating " + bucketName + " bucket: " + s3Error);
+                    return false
+                }
+            }
+        }
+        else{
+            // myBucket = bucketFound
+            println("Bucket already exists.")
+            return true
+        }
+    }    
     
     class FileChecker(var directoryToMonitor: String, var syncMode: String, var bucketName: String, implicit val s3: S3) extends Runnable {
-        val bucket = getS3Bucket(bucketName)
-        
-        def getS3Bucket(bucketName: String): Bucket = {
-            val buckets: Seq[Bucket] = s3.buckets
-            var myBucket = None: Option[Bucket]
-            var bucketFound = buckets.find(_.name == bucketName)
+        val bucket = getS3Bucket(bucketName,s3)
 
-            if(bucketFound == None){
-                myBucket = Some(s3.createBucket(bucketName))
-            }
-
-            myBucket.get
-        }
-        
-        
         def loadS3Files: HashMap[String, String] = {
                 var s3filesSet: HashMap[String, String] = scala.collection.mutable.HashMap()
                 // println("S3 Files:")
@@ -98,6 +148,9 @@ object sync {
                     }
                 }      
                 s3filesSet
+                
+                // Error: com.amazonaws.services.s3.model.AmazonS3Exception: The specified bucket does not exist (Service: Amazon S3; Status Code: 404; Error Code: NoSuchBucket; Request ID: 4D828B3776B0E7E7; 
+                // S3 Extended Request ID: IKcgmD9M53VF9kYMfaYrwJnEOKfaJv60zyAObBNLlIV7LzoUl9qFBUjFGLb6IvGBz92bEJyZ9vw=), S3 Extended Request ID: IKcgmD9M53VF9kYMfaYrwJnEOKfaJv60zyAObBNLlIV7LzoUl9qFBUjFGLb6IvGBz92bEJyZ9vw=
         }
 
         def loadLocalFiles: HashMap[String, String] = {
@@ -183,91 +236,125 @@ object sync {
             } catch {
                 case interrupted: InterruptedException => Unit;
                 case genericError: Exception => println("Error: " + genericError);
+                case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => print("\nError (S3): " + s3Error);                
             }
             
         }
     }
     
+    def updateConfigFile(fileName: String, bucketName: String, syncMode: String, directoryToMonitor: String): Boolean = {
+        try{
+            val pw = new PrintWriter(new File(fileName), "UTF-8")
+            pw.println("bucketName = " + bucketName)
+            pw.println("syncMode = " + syncMode)
+            pw.println("directoryToMonitor = " + directoryToMonitor)
+            pw.close      
+            return true
+        }
+        catch{
+            case e: Exception => {
+                println("Error (updateConfigFile): " + e);
+                return false
+            }
+        }
+    }
+    
     def main(args: Array[String]) {
 
-        try{
+        // try{
             var directoryToMonitor = ""
             var syncMode = ""
             var bucketName = ""
-            // var amznRegion = com.amazonaws.regions.Regions.US_EAST_1
-            if (args.length == 0){
-                directoryToMonitor = new java.io.File( "." ).getCanonicalPath()
-                syncMode = "push"
-                bucketName = "scalasync"
-                // amznRegion = com.amazonaws.regions.Regions.US_EAST_1
-            } else {
-                // val dirExists = new java.io.File(args(0)).exists
-                if(new java.io.File(args(0)).exists){
-                    directoryToMonitor = new java.io.File(args(0)).getCanonicalPath()
-                    println("Monitoring " + directoryToMonitor)
+
+            implicit val s3 = S3.at(Region.NorthernVirginia)
+
+            
+            val config = ConfigFactory.parseFile(new File("./scalasync.conf"))
+            if(config.isEmpty){
+                println("scalasync.conf configuration file does not exist.\nCreating a file with a random bucket name and default settings.\nRun 'scalasync setup' to change these values.")
+                var localhostname = java.net.InetAddress.getLocalHost().getHostName()
+                var rn =  scala.util.Random
+                bucketName = localhostname + rn.nextInt
+                var bucketGood = createS3Bucket(bucketName,s3)
+                if(bucketGood == false){
+                    println("S3 Bucket creation failed.  Exiting...")
+                    return
+                }
+                val configCreated = updateConfigFile("./scalasync.conf",bucketName,"push",".")
+                if(configCreated == false){
+                    println("Config file creation failed.  Exiting...")
+                    return
+                }
+            }
+            else{
+                bucketName = config.getString("bucketName")
+                syncMode = config.getString("syncMode")
+                directoryToMonitor = config.getString("directoryToMonitor")
+            }
+            
+            
+            if (args.length != 0){
+                if(args(0).toLowerCase == "setup"){
+                    println("Entering setup for scalasync...")
+                    var bucketGood = false
+                    var input = ""
+                    while(bucketGood == false){
+                        print("Please enter new name for your S3 bucket [" + bucketName + "]: ")
+                        input = readLine()
+                        input match {
+                            case "" => {
+                                println("Keeping the same bucket name of: " + bucketName)
+                                bucketGood = checkForS3Bucket(bucketName,s3)
+                            }
+                            case _  => {
+                                bucketName = input
+                                bucketGood = createS3Bucket(bucketName,s3)
+                            }
+                        }
+                        if(bucketGood == false){println("Bucket creation/retrieval issue... (hit Ctrl-C to exit or continue trying)")}
+                    }
+                    print("Please enter the sync mode (push or pull) [" + syncMode + "]: ")
+                    input = readLine()
+                    input match {
+                        case "" => println("Keeping sync mode: " + syncMode)
+                        case "pull"  => syncMode = "pull"
+                        case "push"  => syncMode = "push"
+                        case _  => println("Error")
+                    }                     
+                    print("Please enter the directory to monitor [" + directoryToMonitor + "]: ")
+                    input = readLine()
+                    input match {
+                        case "" => println("Keeping the directory: " + directoryToMonitor)
+                        case _  => directoryToMonitor = input
+                    }
+                    val configUpdated = updateConfigFile("./scalasync.conf",bucketName,syncMode,directoryToMonitor)
+                    if(configUpdated == false){
+                        println("Config file updated failed.  Exiting...")
+                        return
+                    }                    
                 }
                 else {
-                    throw new IllegalArgumentException("Directory does not exist: " + args(0))
+                    println("The only available argument is 'setup', i.e., scalasync setup")
+                    return 
                 }
-                if(!args(1).isEmpty){
-                    syncMode = args(1)
-                    println("Sync Mode: " + syncMode)
-                }
-                else {
-                    syncMode = "push"
-                    println("Sync Mode: " + syncMode)
-                }
-                if(!args(2).isEmpty){
-                    bucketName = args(2)
-                    println("S3 Bucket: " + bucketName)
-                }
-                else {
-                    bucketName = "scalasync"
-                    println("S3 Bucket: " + bucketName)
-                }
-                // if(args(3) == "US_EAST_1"){
-                //     amznRegion = com.amazonaws.regions.Regions.US_EAST_1
-                // }
-                // else{
-                //     amznRegion = com.amazonaws.regions.Regions.US_EAST_1
-                // }
-                // println("Amazon Region: " + amznRegion.toString)
             }            
             
-         
-            implicit val s3 = S3()
-            s3.setRegion(com.amazonaws.regions.Region.getRegion(com.amazonaws.regions.Regions.US_EAST_1))
-            // s3.setRegion(Region.getRegion(Regions.US_EAST_1))
-            // S3.at(Region.NorthernVirginia)
-            
-            // implicit val s3 = S3.at(Region.NorthernVirginia)
-            // s3.createBucket("jnstestbucket")
-            
+
             val pool = java.util.concurrent.Executors.newFixedThreadPool(1,
                 new ThreadFactory() {
                     def newThread(r: Runnable) = {
                         var t = Executors.defaultThreadFactory().newThread(r)
                         t.setDaemon(true)
-                        t
+                        return t
                     }
             })
             
             pool.execute(new FileChecker(directoryToMonitor,syncMode,bucketName,s3))
-     
-    
-            Iterator.continually({
-                    print("Enter your choice: (Q)uit, (L)ist files: ")
-                    readLine().toUpperCase
-                }).takeWhile(_.nonEmpty).foreach {
-                case "Q" => println("Quitting...");return
-                case "L" => {printList(getFiles(directoryToMonitor))};
-                case _ => println("Invalid choice")
-            }
+
             
-            
-        } catch {
-            case e: Exception => println("Error (Main): " + e);
-        }
+        // } catch {
+        //     case e: Exception => println("Error (Main): " + e);
+        // }
     }
     
 }

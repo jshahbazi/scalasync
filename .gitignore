@@ -1,5 +1,7 @@
 *.class
 *.log
+/src/main/scala/Main.scala.old
+scalasync.conf
 target/
 testupload/
 project/
