@@ -55,18 +55,19 @@ object sync {
     }
 
     def uploadFile(fileName: String, s3bucket: Bucket)(implicit s3: S3) = Future {
-        try{
+        // try{
             var fileToUpload = new java.io.File(fileName)
-            print("\nUploading " + fileName + "...")
-            val result = s3bucket.put(fileName, fileToUpload) 
+            var S3FileName = fileName.trim.stripPrefix("./")
+            println("Uploading " + fileName + "...")
+            val result = s3bucket.put(S3FileName, fileToUpload) 
             if(result.key != null){
                 result.key
             } else {
-                print("\nError uploading " + fileName)
+                println("Error uploading " + fileName)
             }
-        } catch {
-            case e: Exception => print("\nError: " + e);
-        }
+        // } catch {
+        //     case e: Exception => println("Error: " + e);
+        // }
     }
     
     //Bucket already exists error message:
@@ -120,7 +121,7 @@ object sync {
                     return false                    
                 }
                 case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => {
-                    print("Error creating " + bucketName + " bucket: " + s3Error);
+                    println("Error creating " + bucketName + " bucket: " + s3Error);
                     return false
                 }
             }
@@ -138,12 +139,12 @@ object sync {
         def loadS3Files: HashMap[String, String] = {
                 var s3filesSet: HashMap[String, String] = scala.collection.mutable.HashMap()
                 // println("S3 Files:")
-                s3.ls(bucket, directoryToMonitor + "/").foreach {
+                s3.ls(bucket, directoryToMonitor.stripPrefix("./") + "/").foreach {
                     case Left(directoryPrefix) => println(directoryPrefix)
                     case Right(s3ObjectSummary) => {
                         var fileName = s3ObjectSummary.getKey
                         var fileHash = s3ObjectSummary.getETag
-                        // println("File: " + fileName + " - Hash: " + s3ObjectSummary.getETag)
+                        // println("S3: File: " + fileName + " - Hash: " + s3ObjectSummary.getETag)
                         s3filesSet += ((fileName,fileHash))
                     }
                 }      
@@ -157,8 +158,9 @@ object sync {
             var localfilesSet: HashMap[String, String] = scala.collection.mutable.HashMap()
             var filesInCurrentDirectory = getFiles(directoryToMonitor)
             filesInCurrentDirectory.foreach({ obj =>
-                var fileName = obj.toString
+                var fileName = obj.toString.stripPrefix("./")
                 var fileHash = computeHash(fileName)
+                // println("LO: File: " + fileName + " - Hash: " + fileHash)
                 localfilesSet += ((fileName,fileHash))
             })
             
@@ -173,7 +175,7 @@ object sync {
                 if(s3filesSet.contains(fileName)){
                     // println(fileName + " - Uploaded")
                 } else{
-                    // println(fileName + " - Pending")
+                    // println("Uploading " + fileName + "...")
                     uploadFile(fileName,bucket)
                     .onComplete{
                         case Success(fileThatWasUploaded) => Unit // println("Successfully uploaded " + fileThatWasUploaded)
@@ -210,16 +212,12 @@ object sync {
             }
         }
 
-
         def run {
-            
-            try{
-            
+            // try{
                 while(true){
-    
                     var s3filesSet = loadS3Files
                     var localfilesSet = loadLocalFiles
-                    
+
                     syncMode match{
                         case "push" => {
                             syncFilesToS3(s3filesSet,localfilesSet)
@@ -233,11 +231,11 @@ object sync {
                     
                     Thread.sleep(10000)
                 }
-            } catch {
-                case interrupted: InterruptedException => Unit;
-                case genericError: Exception => println("Error: " + genericError);
-                case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => print("\nError (S3): " + s3Error);                
-            }
+            // } catch {
+            //     case interrupted: InterruptedException => Unit;
+            //     case genericError: Exception => println("Error: " + genericError);
+            //     case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => print("\nError (S3): " + s3Error);                
+            // }
             
         }
     }
@@ -262,12 +260,22 @@ object sync {
     def main(args: Array[String]) {
 
         // try{
-            var directoryToMonitor = ""
-            var syncMode = ""
+            var directoryToMonitor = "."
+            var syncMode = "push"
             var bucketName = ""
-
+            var doSetup = false
             implicit val s3 = S3.at(Region.NorthernVirginia)
-
+            
+            if (args.length != 0){
+                if(args(0).toLowerCase == "setup"){
+                    doSetup = true                    
+                }
+                else {
+                    println("The only available argument is 'setup', i.e., scalasync setup")
+                    return 
+                }
+            }
+            
             
             val config = ConfigFactory.parseFile(new File("./scalasync.conf"))
             if(config.isEmpty){
@@ -275,83 +283,83 @@ object sync {
                 var localhostname = java.net.InetAddress.getLocalHost().getHostName()
                 var rn =  scala.util.Random
                 bucketName = localhostname + rn.nextInt
-                var bucketGood = createS3Bucket(bucketName,s3)
-                if(bucketGood == false){
-                    println("S3 Bucket creation failed.  Exiting...")
-                    return
-                }
-                val configCreated = updateConfigFile("./scalasync.conf",bucketName,"push",".")
-                if(configCreated == false){
-                    println("Config file creation failed.  Exiting...")
-                    return
-                }
+                doSetup = true
             }
             else{
                 bucketName = config.getString("bucketName")
                 syncMode = config.getString("syncMode")
                 directoryToMonitor = config.getString("directoryToMonitor")
             }
-            
-            
-            if (args.length != 0){
-                if(args(0).toLowerCase == "setup"){
-                    println("Entering setup for scalasync...")
-                    var bucketGood = false
-                    var input = ""
-                    while(bucketGood == false){
-                        print("Please enter new name for your S3 bucket [" + bucketName + "]: ")
-                        input = readLine()
-                        input match {
-                            case "" => {
-                                println("Keeping the same bucket name of: " + bucketName)
-                                bucketGood = checkForS3Bucket(bucketName,s3)
-                            }
-                            case _  => {
-                                bucketName = input
-                                bucketGood = createS3Bucket(bucketName,s3)
-                            }
+
+
+            if(doSetup == true){
+                println("Entering setup for scalasync...")
+                var bucketGood = false
+                var input = ""
+                while(bucketGood == false){
+                    print("Please enter name for your S3 bucket [" + bucketName + "]: ")
+                    input = readLine()
+                    input match {
+                        case "" => {
+                            // println("Using the bucket name of: " + bucketName)
+                            bucketGood = createS3Bucket(bucketName,s3)
                         }
-                        if(bucketGood == false){println("Bucket creation/retrieval issue... (hit Ctrl-C to exit or continue trying)")}
+                        case _  => {
+                            bucketName = input
+                            bucketGood = createS3Bucket(bucketName,s3)
+                        }
                     }
-                    print("Please enter the sync mode (push or pull) [" + syncMode + "]: ")
-                    input = readLine()
-                    input match {
-                        case "" => println("Keeping sync mode: " + syncMode)
-                        case "pull"  => syncMode = "pull"
-                        case "push"  => syncMode = "push"
-                        case _  => println("Error")
-                    }                     
-                    print("Please enter the directory to monitor [" + directoryToMonitor + "]: ")
-                    input = readLine()
-                    input match {
-                        case "" => println("Keeping the directory: " + directoryToMonitor)
-                        case _  => directoryToMonitor = input
-                    }
-                    val configUpdated = updateConfigFile("./scalasync.conf",bucketName,syncMode,directoryToMonitor)
-                    if(configUpdated == false){
-                        println("Config file updated failed.  Exiting...")
-                        return
-                    }                    
+                    if(bucketGood == false){println("Bucket creation/retrieval issue... (hit Ctrl-C to exit or continue trying)")}
                 }
-                else {
-                    println("The only available argument is 'setup', i.e., scalasync setup")
-                    return 
+                print("Please enter the sync mode (push or pull) [" + syncMode + "]: ")
+                input = readLine()
+                input match {
+                    case "" => {}
+                    case "pull"  => syncMode = "pull"
+                    case "push"  => syncMode = "push"
+                    case _  => println("Error")
+                }                     
+                print("Please enter the directory to monitor [" + directoryToMonitor + "]: ")
+                input = readLine()
+                input match {
+                    case "" => {}
+                    case _  => directoryToMonitor = input
                 }
-            }            
+                val configUpdated = updateConfigFile("./scalasync.conf",bucketName,syncMode,directoryToMonitor)
+                if(configUpdated == false){
+                    println("Config file updated failed.  Exiting...")
+                    return
+                }                    
+            }
             
+            if(!(new java.io.File(directoryToMonitor).exists)){
+                println("Error reading " + directoryToMonitor)
+                return
+            }
 
             val pool = java.util.concurrent.Executors.newFixedThreadPool(1,
                 new ThreadFactory() {
                     def newThread(r: Runnable) = {
                         var t = Executors.defaultThreadFactory().newThread(r)
                         t.setDaemon(true)
-                        return t
+                        t
                     }
             })
             
+            
+            
             pool.execute(new FileChecker(directoryToMonitor,syncMode,bucketName,s3))
 
-            
+            Iterator.continually({
+                    readLine().toUpperCase
+                }).foreach{
+                case "Q" => {
+                    println("Quitting...")
+                    return
+                }
+                case "L" => {printList(getFiles(directoryToMonitor))};
+                case  _  => println("(Q)uit, (L)ist files")
+            }            
         // } catch {
         //     case e: Exception => println("Error (Main): " + e);
         // }
