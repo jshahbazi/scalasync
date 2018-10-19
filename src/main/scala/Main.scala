@@ -287,8 +287,16 @@ object sync {
             }
             else{
                 bucketName = config.getString("bucketName")
+                if(checkForS3Bucket(bucketName,s3) == false){
+                    println("Error finding S3 bucket.  Running setup...")
+                    doSetup = true
+                }
                 syncMode = config.getString("syncMode")
                 directoryToMonitor = config.getString("directoryToMonitor")
+                if(!(new java.io.File(directoryToMonitor).exists)){
+                    println("Error reading " + directoryToMonitor)
+                    return
+                }                
             }
 
 
