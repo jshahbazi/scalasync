@@ -4,15 +4,19 @@ import scala.io.Source
 import java.io.PrintWriter
 import java.io.File
 import java.io.FileInputStream
+import java.io.InputStream
 import com.typesafe.config.{Config, ConfigFactory, ConfigValueFactory}
 import java.security.MessageDigest
 import java.security.DigestInputStream
 import awscala._, s3._
 
+import com.amazonaws.services.{ s3 => aws }
+
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.{FileSystems, Files}
 import scala.collection.JavaConverters._
 import java.nio.file.Paths.get
+import java.nio.file.Paths
 
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadFactory;
@@ -28,14 +32,6 @@ object sync {
     def getFiles(dir: String): List[_] = {
         val pathToScan = FileSystems.getDefault.getPath(dir)
         Files.walk(pathToScan).iterator().asScala.filter(Files.isRegularFile(_)).toList
-        
-        // val d = new File(dir)
-        // if(d.exists && d.isDirectory){
-        //     d.listFiles.filter(_.isFile).toList
-        // } else{
-        //     List[File]()
-        // }
-        
     }
     
     def computeHash(path: String): String = {
@@ -53,31 +49,11 @@ object sync {
     def printList(inputList: TraversableOnce[_]): Unit = {
         inputList.foreach(println)
     }
-
-    def uploadFile(fileName: String, s3bucket: Bucket)(implicit s3: S3) = Future {
-        // try{
-            var fileToUpload = new java.io.File(fileName)
-            var S3FileName = fileName.trim.stripPrefix("./")
-            println("Uploading " + fileName + "...")
-            val result = s3bucket.put(S3FileName, fileToUpload) 
-            if(result.key != null){
-                result.key
-            } else {
-                println("Error uploading " + fileName)
-            }
-        // } catch {
-        //     case e: Exception => println("Error: " + e);
-        // }
-    }
-    
-    //Bucket already exists error message:
-    //com.amazonaws.services.s3.model.AmazonS3Exception: The authorization header is malformed; the region 'us-east-1' is wrong; expecting 'eu-west-1' (Service: Amazon S3; Status Code: 400; Error Code: AuthorizationHeaderMalformed
     
     def getS3Bucket(bucketName: String, s3: S3): Bucket = {
         val buckets: Seq[Bucket] = s3.buckets
         var myBucket = None: Option[Bucket]
         var bucketFound = buckets.find(_.name == bucketName)
-
         
         if(bucketFound == None){
             myBucket = Some(s3.createBucket(bucketName))
@@ -86,15 +62,14 @@ object sync {
             myBucket = bucketFound
         }
 
-        // println(s3.location(myBucket.get))
-        myBucket.get
+        // println("Bucket location: " + s3.location(myBucket.get))
+        return myBucket.get
     }
     
     def checkForS3Bucket(bucketName: String, s3: S3): Boolean = {
         val buckets: Seq[Bucket] = s3.buckets
         var myBucket = None: Option[Bucket]
         var bucketFound = buckets.find(_.name == bucketName)
-
         
         if(bucketFound == None){
             return false
@@ -109,36 +84,95 @@ object sync {
         var myBucket = None: Option[Bucket]
         var bucketFound = buckets.find(_.name == bucketName)
 
-        
-        if(bucketFound == None){
-            try{
-                myBucket = Some(s3.createBucket(bucketName))
+        try{
+            if(bucketFound == None){
+                try{
+                    myBucket = Some(s3.createBucket(bucketName))
+                    return true
+                }
+                catch{
+                    case genericError: Exception => {
+                        println("Error creating " + bucketName + " bucket: " + genericError);
+                        return false                    
+                    }
+                    case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => {
+                        println("Error creating " + bucketName + " bucket: " + s3Error);
+                        return false
+                    }
+                }
+            }
+            else{
+                println("Bucket already exists.")
                 return true
             }
-            catch{
-                case genericError: Exception => {
-                    println("Error creating " + bucketName + " bucket: " + genericError);
-                    return false                    
+        }
+        catch{
+            case genericError: Exception => {
+                println("Error: " + genericError)
+                return false
+            }
+            case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => {
+                if(s3Error.toString.contains("AuthorizationHeaderMalformed")){
+                    print("\nError (S3): Bucket already exists");                    
+                } else{
+                    print("\nError (S3): " + s3Error);                        
                 }
-                case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => {
-                    println("Error creating " + bucketName + " bucket: " + s3Error);
-                    return false
-                }
+                return false
             }
         }
-        else{
-            // myBucket = bucketFound
-            println("Bucket already exists.")
+    }    
+    
+    def updateConfigFile(fileName: String, bucketName: String, syncMode: String, directoryToMonitor: String): Boolean = {
+        try{
+            val pw = new PrintWriter(new File(fileName), "UTF-8")
+            pw.println("bucketName = " + bucketName)
+            pw.println("syncMode = " + syncMode)
+            pw.println("directoryToMonitor = " + directoryToMonitor)
+            pw.close      
             return true
         }
-    }    
+        catch{
+            case e: Exception => {
+                println("Error (updateConfigFile): " + e);
+                return false
+            }
+        }
+    }
     
     class FileChecker(var directoryToMonitor: String, var syncMode: String, var bucketName: String, implicit val s3: S3) extends Runnable {
         val bucket = getS3Bucket(bucketName,s3)
 
+        def uploadFile(fileName: String, s3bucket: Bucket)(implicit s3: S3) = Future {
+            try{
+                var fileToUpload = new java.io.File(fileName)
+                var S3FileName = fileName.trim.stripPrefix("./")
+                println("Uploading " + fileName + "...")
+                val result = s3bucket.put(S3FileName, fileToUpload) 
+                if(result.key != null){
+                    result.key
+                } else {
+                    println("Error uploading " + fileName)
+                }
+            } catch {
+                case e: Exception => println("Error: " + e);
+            }
+        }
+        
+        def downloadFile(fileKey: String, s3bucket: Bucket)(implicit s3: S3) = Future {
+            val in: InputStream = s3bucket.get(fileKey).get.getObjectContent
+            try{
+                println("Downloading ./" + fileKey + "...")
+                val localFileName = "./" + fileKey
+                Files.copy(in, Paths.get(localFileName));
+            } catch {
+                case e: Exception => println("Error (downloadFile): " + e);
+            } finally {
+                in.close() 
+            }
+        }   
+        
         def loadS3Files: HashMap[String, String] = {
                 var s3filesSet: HashMap[String, String] = scala.collection.mutable.HashMap()
-                // println("S3 Files:")
                 s3.ls(bucket, directoryToMonitor.stripPrefix("./") + "/").foreach {
                     case Left(directoryPrefix) => println(directoryPrefix)
                     case Right(s3ObjectSummary) => {
@@ -148,10 +182,7 @@ object sync {
                         s3filesSet += ((fileName,fileHash))
                     }
                 }      
-                s3filesSet
-                
-                // Error: com.amazonaws.services.s3.model.AmazonS3Exception: The specified bucket does not exist (Service: Amazon S3; Status Code: 404; Error Code: NoSuchBucket; Request ID: 4D828B3776B0E7E7; 
-                // S3 Extended Request ID: IKcgmD9M53VF9kYMfaYrwJnEOKfaJv60zyAObBNLlIV7LzoUl9qFBUjFGLb6IvGBz92bEJyZ9vw=), S3 Extended Request ID: IKcgmD9M53VF9kYMfaYrwJnEOKfaJv60zyAObBNLlIV7LzoUl9qFBUjFGLb6IvGBz92bEJyZ9vw=
+                return s3filesSet
         }
 
         def loadLocalFiles: HashMap[String, String] = {
@@ -163,8 +194,7 @@ object sync {
                 // println("LO: File: " + fileName + " - Hash: " + fileHash)
                 localfilesSet += ((fileName,fileHash))
             })
-            
-            localfilesSet
+            return localfilesSet
         }
         
         def syncFilesToS3(s3filesSet: HashMap[String, String], localfilesSet: HashMap[String, String]) = {
@@ -187,6 +217,27 @@ object sync {
                 }            
             }
         }
+
+        def syncS3ToLocal(s3filesSet: HashMap[String, String], localfilesSet: HashMap[String, String]) = {
+            s3filesSet.foreach{ (hashtuple) =>
+                var fileName = hashtuple._1
+                var fileHash = hashtuple._2
+            
+                if(localfilesSet.contains(fileName)){
+                    // println(fileName + " - Uploaded")
+                } else{
+                    // println("Uploading " + fileName + "...")
+                    downloadFile(fileName,bucket)
+                    .onComplete{
+                        case Success(fileThatWasDownloaded) => Unit // println("Successfully downloaded " + fileThatWasDownloaded)
+                        case Failure(e) => {
+                            println("Error: Failed to download " + fileName)
+                            e.printStackTrace                        
+                        }
+                    }
+                }            
+            }
+        }
         
         def removeFilesFromS3(s3filesSet: HashMap[String, String], localfilesSet: HashMap[String, String]) = {
             s3filesSet.foreach{ (hashtuple) =>
@@ -199,21 +250,32 @@ object sync {
                     // var objToDelete = s3.get(bucket,fileName)
                     println("Deleting " + fileName + "...")
                     bucket.delete(fileName)
-                    // println(fileName + " - Pending")
-                    // uploadFile(fileName,bucket)
-                    // .onComplete{
-                    //     case Success(fileThatWasUploaded) => Unit // println("Successfully uploaded " + fileThatWasUploaded)
-                    //     case Failure(e) => {
-                    //         println("Error: Failed to upload " + fileName)
-                    //         e.printStackTrace                        
-                    //     }
-                    // }
                 }            
             }
         }
+        
+        def removeFilesFromLocal(s3filesSet: HashMap[String, String], localfilesSet: HashMap[String, String]) = {
+            localfilesSet.foreach{ (hashtuple) =>
+                var fileName = hashtuple._1
+                var fileHash = hashtuple._2
+            
+                if(s3filesSet.contains(fileName)){
+                    // println(fileName + " - Uploaded")
+                } else{
+                    // var objToDelete = s3.get(bucket,fileName)
+                    println("Deleting " + fileName + "...")
+                    //bucket.delete(fileName)
+                    if(new File(fileName).delete()){
+                    }
+                    else{
+                        println("Error deleting " + fileName)
+                    }
+                }            
+            }
+        }        
 
         def run {
-            // try{
+            try{
                 while(true){
                     var s3filesSet = loadS3Files
                     var localfilesSet = loadLocalFiles
@@ -224,48 +286,39 @@ object sync {
                             removeFilesFromS3(s3filesSet,localfilesSet)                            
                         }
                         case "pull" => {
-                            println("Pull mode in development...")
+                            // println("Pull mode in development...")
+                            syncS3ToLocal(s3filesSet,localfilesSet)
+                            removeFilesFromLocal(s3filesSet,localfilesSet)                             
                         }
                         case _ => println("Error: Unknown syncMode")
                     }
                     
                     Thread.sleep(10000)
                 }
-            // } catch {
-            //     case interrupted: InterruptedException => Unit;
-            //     case genericError: Exception => println("Error: " + genericError);
-            //     case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => print("\nError (S3): " + s3Error);                
-            // }
-            
-        }
-    }
-    
-    def updateConfigFile(fileName: String, bucketName: String, syncMode: String, directoryToMonitor: String): Boolean = {
-        try{
-            val pw = new PrintWriter(new File(fileName), "UTF-8")
-            pw.println("bucketName = " + bucketName)
-            pw.println("syncMode = " + syncMode)
-            pw.println("directoryToMonitor = " + directoryToMonitor)
-            pw.close      
-            return true
-        }
-        catch{
-            case e: Exception => {
-                println("Error (updateConfigFile): " + e);
-                return false
+            } catch {
+                case interrupted: InterruptedException => Unit;
+                case genericError: Exception => println("Error: " + genericError);
+                case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => {
+                    if(s3Error.toString.contains("NoSuchBucket")){
+                        print("\nError (S3): Bucket not found");                    
+                    } else{
+                        print("\nError (S3): " + s3Error);                        
+                    }
+                }               
             }
+            
         }
     }
     
     def main(args: Array[String]) {
 
-        // try{
+        try{
             var directoryToMonitor = "."
             var syncMode = "push"
             var bucketName = ""
             var doSetup = false
             implicit val s3 = S3.at(Region.NorthernVirginia)
-            
+
             if (args.length != 0){
                 if(args(0).toLowerCase == "setup"){
                     doSetup = true                    
@@ -309,7 +362,6 @@ object sync {
                     input = readLine()
                     input match {
                         case "" => {
-                            // println("Using the bucket name of: " + bucketName)
                             bucketGood = createS3Bucket(bucketName,s3)
                         }
                         case _  => {
@@ -354,8 +406,6 @@ object sync {
                     }
             })
             
-            
-            
             pool.execute(new FileChecker(directoryToMonitor,syncMode,bucketName,s3))
 
             Iterator.continually({
@@ -367,10 +417,13 @@ object sync {
                 }
                 case "L" => {printList(getFiles(directoryToMonitor))};
                 case  _  => println("(Q)uit, (L)ist files")
+                
+                
+                
             }            
-        // } catch {
-        //     case e: Exception => println("Error (Main): " + e);
-        // }
+        } catch {
+            case e: Exception => println("Error (Main): " + e);
+        }
     }
     
 }
