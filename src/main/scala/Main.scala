@@ -19,7 +19,7 @@ import java.nio.file.Paths.get
 import java.nio.file.Paths
 
 import java.util.concurrent.Executors
-import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadFactory
 import scala.concurrent.{Future, future}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{Failure, Success}
@@ -29,10 +29,7 @@ import scala.collection.mutable.HashMap
     
 object sync {
     
-    def getFiles(dir: String): List[_] = {
-        val pathToScan = FileSystems.getDefault.getPath(dir)
-        Files.walk(pathToScan).iterator().asScala.filter(Files.isRegularFile(_)).toList
-    }
+    def checkForS3Bucket(bucketName: String, s3: S3): Boolean =  if (s3.buckets.find(_.name == bucketName) == None) true else false
     
     def computeHash(path: String): String = {
         val buffer = new Array[Byte](8192)
@@ -46,39 +43,6 @@ object sync {
         md5.digest.map("%02x".format(_)).mkString
     }
     
-    def printList(inputList: TraversableOnce[_]): Unit = {
-        inputList.foreach(println)
-    }
-    
-    def getS3Bucket(bucketName: String, s3: S3): Bucket = {
-        val buckets: Seq[Bucket] = s3.buckets
-        var myBucket = None: Option[Bucket]
-        var bucketFound = buckets.find(_.name == bucketName)
-        
-        if(bucketFound == None){
-            myBucket = Some(s3.createBucket(bucketName))
-        }
-        else{
-            myBucket = bucketFound
-        }
-
-        // println("Bucket location: " + s3.location(myBucket.get))
-        return myBucket.get
-    }
-    
-    def checkForS3Bucket(bucketName: String, s3: S3): Boolean = {
-        val buckets: Seq[Bucket] = s3.buckets
-        var myBucket = None: Option[Bucket]
-        var bucketFound = buckets.find(_.name == bucketName)
-        
-        if(bucketFound == None){
-            return false
-        }
-        else{
-            return true
-        }
-    }        
-    
     def createS3Bucket(bucketName: String, s3: S3): Boolean = {
         val buckets: Seq[Bucket] = s3.buckets
         var myBucket = None: Option[Bucket]
@@ -88,28 +52,28 @@ object sync {
             if(bucketFound == None){
                 try{
                     myBucket = Some(s3.createBucket(bucketName))
-                    return true
+                    true
                 }
                 catch{
                     case genericError: Exception => {
                         println("Error creating " + bucketName + " bucket: " + genericError);
-                        return false                    
+                        false                    
                     }
                     case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => {
                         println("Error creating " + bucketName + " bucket: " + s3Error);
-                        return false
+                        false
                     }
                 }
             }
             else{
                 println("Bucket already exists.")
-                return true
+                true
             }
         }
         catch{
             case genericError: Exception => {
                 println("Error: " + genericError)
-                return false
+                false
             }
             case s3Error: com.amazonaws.services.s3.model.AmazonS3Exception => {
                 if(s3Error.toString.contains("AuthorizationHeaderMalformed")){
@@ -117,10 +81,23 @@ object sync {
                 } else{
                     print("\nError (S3): " + s3Error);                        
                 }
-                return false
+                false
             }
         }
     }    
+
+    def getBucketLocation(bucketName: Bucket, s3: S3): String = s3.location(bucketName)
+    
+    def getFiles(dir: String): List[_] = (new File(dir)).listFiles.filter(_.isFile).toList
+    
+    def getS3Bucket(bucketName: String, s3: S3): Bucket = {
+        val buckets: Seq[Bucket] = s3.buckets
+        var bucketFound = buckets.find(_.name == bucketName)
+        val myBucket = (if (bucketFound == None) Some(s3.createBucket(bucketName)) else bucketFound).get
+        myBucket
+    }
+    
+    def printList(inputList: TraversableOnce[_]) = inputList.foreach{println}
     
     def updateConfigFile(fileName: String, bucketName: String, syncMode: String, directoryToMonitor: String): Boolean = {
         try{
@@ -129,12 +106,12 @@ object sync {
             pw.println("syncMode = " + syncMode)
             pw.println("directoryToMonitor = " + directoryToMonitor)
             pw.close      
-            return true
+            true
         }
         catch{
             case e: Exception => {
                 println("Error (updateConfigFile): " + e);
-                return false
+                false
             }
         }
     }
@@ -182,7 +159,7 @@ object sync {
                         s3filesSet += ((fileName,fileHash))
                     }
                 }      
-                return s3filesSet
+                s3filesSet
         }
 
         def loadLocalFiles: HashMap[String, String] = {
@@ -194,7 +171,7 @@ object sync {
                 // println("LO: File: " + fileName + " - Hash: " + fileHash)
                 localfilesSet += ((fileName,fileHash))
             })
-            return localfilesSet
+            localfilesSet
         }
         
         def syncFilesToS3(s3filesSet: HashMap[String, String], localfilesSet: HashMap[String, String]) = {
@@ -329,7 +306,6 @@ object sync {
                 }
             }
             
-            
             val config = ConfigFactory.parseFile(new File("./scalasync.conf"))
             if(config.isEmpty){
                 println("scalasync.conf configuration file does not exist.\nCreating a file with a random bucket name and default settings.\nRun 'scalasync setup' to change these values.")
@@ -351,7 +327,6 @@ object sync {
                     return
                 }                
             }
-
 
             if(doSetup == true){
                 println("Entering setup for scalasync...")
@@ -417,10 +392,9 @@ object sync {
                 }
                 case "L" => {printList(getFiles(directoryToMonitor))};
                 case  _  => println("(Q)uit, (L)ist files")
-                
-                
-                
-            }            
+            }         
+            
+            
         } catch {
             case e: Exception => println("Error (Main): " + e);
         }
